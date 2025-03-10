@@ -1,0 +1,146 @@
+version: '3.8'
+
+networks:
+  my_network1:
+    name: my_network1  # Acest nume forțează exact "my_network1"
+    driver: bridge
+
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "8085:8080"
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=DEBUG"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik_logs:/var/log/traefik
+    networks:
+      - my_network1
+
+  front_app:
+    image: front_img
+    container_name: front_app
+    build: "./react-demo"
+    ports:
+      - "3000:3000"
+    networks:
+      - my_network1
+    extra_hosts:
+      - "user.localhost:host-gateway"
+
+  mysql_user:
+    image: mysql:latest
+    container_name: mysql_user
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: user_db
+    networks:
+      - my_network1
+
+  mysql_device:
+    image: mysql:latest
+    container_name: mysql_device
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: device_db
+    networks:
+      - my_network1
+
+  mysql_monitoring:
+    image: mysql:latest
+    container_name: mysql_monitoring
+    ports:
+      - "3309:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: monitoring_db
+    networks:
+      - my_network1
+
+
+  user_app:
+    image: user_img
+    container_name: user_app
+    build: "./user"
+    environment:
+      DB_IP: mysql_user
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_DBNAME: user_db
+    depends_on:
+      - mysql_user
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.userapp.rule=Host(`user.localhost`)"
+      - "traefik.http.services.userapp.loadbalancer.server.port=8080"
+      - "traefik.docker.network=my_network1"
+    networks:
+      - my_network1
+
+  device_app:
+    image: device_img
+    container_name: device_app
+    build: "./device"
+    environment:
+      DB_IP: mysql_device
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_DBNAME: device_db
+    depends_on:
+      - user_app
+      - mysql_device
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.deviceapp.rule=Host(`device.localhost`)"
+      - "traefik.http.services.deviceapp.loadbalancer.server.port=8081"
+      - "traefik.docker.network=my_network1"
+    networks:
+      - my_network1
+    extra_hosts:
+      - "user.localhost:host-gateway"
+
+  monitoring_app:
+    image: monitoring_img
+    container_name: monitoring_app
+    build: "./monitoring_microservice"
+    environment:
+      DB_IP: mysql_monitoring
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_DBNAME: monitoring_db
+    depends_on:
+      - device_app
+      - mysql_monitoring
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.monitoringapp.rule=Host(`monitoring.localhost`)"
+      - "traefik.http.services.monitoringapp.loadbalancer.server.port=8082"
+      - "traefik.docker.network=my_network1"
+    networks:
+      - my_network1
+    extra_hosts:
+      - "device.localhost:host-gateway"
+
+volumes:
+  volume1:
+  volume2:
+  volume3:
+  volume4:
+  traefik_logs:
+
